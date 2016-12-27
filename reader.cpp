@@ -6,12 +6,11 @@ int main () {
 	int i = 0;
 
 	// Semaphoes ^__^
-	// sem_init(&row_sem, 0, 1);
-	// sem_init(&col_sem, 0, 1);
-	// sem_init(&calc_sem, 0, 10);
+	sem_init(&row_semaphore, 0, 1);
+	sem_init(&col_semaphore, 0, 1);
+	sem_init(&calc_semaphore, 0, BUFF_SIZE);
 
-	// sem_wait(&row_sem);	
-
+	sem_wait(&row_semaphore);
 
 	// Creating Threads
 	rc[0] = pthread_create(&rowReaderThread, NULL, readRow, (void*)i);
@@ -23,8 +22,8 @@ int main () {
 		cout << "Error:unable to create thread!" << endl;
 		exit(-1);
 	}
-
-	pthread_exit(NULL);
+	pthread_join(calcThread, NULL);
+	// pthread_exit(NULL);
 	return 0;
 }   
 
@@ -38,7 +37,7 @@ void *readRow(void* param)
 	{
 		for (int i = 0; i < NUM_ROWS; ++i)
 		{
-			// sem_wait(&row_sem);
+			sem_wait(&row_semaphore);
 			if (!getline(my_file, line))
 				break;
 			row_parser(line);
@@ -85,11 +84,19 @@ void *readCol(void *param)
 	{
 		for (int i = 0; i < NUM_COLS; ++i)
 		{
+			sem_wait(&col_semaphore);
+			row_ready = false;
+			sem_post(&row_semaphore);
 			my_file.seekg(0);
 			for (int j = 0; j < NUM_ROWS; ++j)
 			{
+	  			if(i > 0)
+					sem_wait(&col_semaphore);
+
 				getline(my_file, line);
 				col_parser(line, j, i);
+				// cout << line << endl;
+				// cout << "biroon	 haroomi" << endl;
 			}
 			col_ready = true;
 		}
@@ -136,26 +143,71 @@ void *calcMatrix(void *param)
 {
 	cout << "calcMatrix\n";
 	int value;
-	for (int i = 0; i < NUM_COLS*NUM_ROWS; ++i)
+	for (int i = 0; i < NUM_COLS*NUM_ROWS; i)
 	{
+		value = 0;
+		for (int j = 0; j < NUM_COLS; ++j)
+			value += row[j] * col[j];
 		if(!col_ready || !row_ready)
 			continue;
-		value = calc_entry();
-	}
+		cout << "i: " << i << endl;
+		col_ready = false;
+		sem_post(&col_semaphore);
+		sem_wait(&calc_semaphore);
 
+		// for (int z = 0; z < NUM_COLS; ++z)
+		// {
+		// 	cout << row[z] << ' ';
+		// }
+		// cout << " row" << endl;
+		// for (int z = 0; z < NUM_COLS; ++z)
+		// {
+		// 	cout << col[z] << ' ';
+		// }
+		// cout << " col" << endl;
+		calculated[calc_start_idx % 10] = value;
+		calc_start_idx++;
+		i++;
+	}
 	cout << "calcMatrix Ended!\n";
 	pthread_exit(NULL);
 }
 
-int calc_entry()
-{
-	int sum = 0;
-	for (int i = 0; i < NUM_COLS; ++i)
-		sum += row[i] * col[i];
-	return sum;
-}
-
 void *printMatrix(void *param)
 {
+	cout << "printMatrix\n";
+	ofstream my_file(C_MATRIX_PATH);
+	int idx = 0;
+	for (int i = 0; i < NUM_ROWS; i)
+	{
+		// cout << i;
+		if (idx == NUM_COLS)
+		{
+			for (int j = 0; j < NUM_COLS - 1; ++j)
+				my_file << out[i] << ' ';
+			my_file << out[NUM_COLS - 1] << endl;
+			idx = 0;
+			i++;
+		}
+		if(is_sth_calculated(calc_start_idx, calc_end_idx))
+		{
+			// cout << "gg\n";
+			out[idx] = calculated[(calc_end_idx+1) % 10];
+			calc_end_idx++;
+			idx++;
+			sem_post(&calc_semaphore);
+		}
+	}
 
+
+	my_file.close();
+	cout << "printMatrix Ended!\n";
+	pthread_exit(NULL);	
+}
+
+bool is_sth_calculated(int calc_start_idx, int calc_end_idx)
+{
+	if (calc_end_idx - calc_start_idx != 9)
+		return true;
+	return false;
 }
