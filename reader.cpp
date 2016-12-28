@@ -1,6 +1,7 @@
 #include "reader.h"
 
-int main () {
+int main ()
+{
 	pthread_t rowReaderThread, colReaderThread, calcThread, printThread;
 	int rc[NUM_THREADS];
 	int i = 0;
@@ -22,8 +23,10 @@ int main () {
 		cout << "Error:unable to create thread!" << endl;
 		exit(-1);
 	}
-	pthread_join(calcThread, NULL);
-	// pthread_exit(NULL);
+	
+	//	Making the main func to wait for the threads to end 
+	pthread_exit(NULL);
+
 	return 0;
 }   
 
@@ -73,36 +76,41 @@ void row_parser(string line)
 	}
 }
 
-
 void *readCol(void *param)
 {
 	cout << "readCol\n";
 	ifstream my_file(B_MATRIX_PATH);
 	string line;
-
+	
 	if (my_file.is_open())
 	{
-		for (int i = 0; i < NUM_COLS; ++i)
+		for (int r = 0; r < NUM_ROWS; ++r)
 		{
 			sem_wait(&col_semaphore);
 			row_ready = false;
-			sem_post(&row_semaphore);
-			my_file.seekg(0);
-			for (int j = 0; j < NUM_ROWS; ++j)
+			sem_post(&row_semaphore);	
+			for (int i = 0; i < NUM_COLS; i++)
 			{
-	  			if(i > 0)
+		  		if(i != 0)
+		  		{
 					sem_wait(&col_semaphore);
+		  		}
+	  			my_file.seekg(0);
 
-				getline(my_file, line);
-				col_parser(line, j, i);
-				// cout << line << endl;
-				// cout << "biroon	 haroomi" << endl;
+				for (int j = 0; j < NUM_ROWS; ++j)
+				{
+					if (!getline(my_file, line))
+					{
+						cout << "error\n";
+						pthread_exit(NULL);
+					}
+					col_parser(line, j, i);
+				}
+				col_ready = true;
 			}
-			col_ready = true;
 		}
 		my_file.close();
-	}
-	
+	}	
 	cout << "readCol Ended!\n";
 	pthread_exit(NULL);
 }
@@ -117,6 +125,7 @@ void col_parser(string line, int r, int c)
 		{
 			if (idx == c)
 			{
+				// cout << "col[" << r << "]: " << atoi(word.c_str()) << endl;
 				col[r] = atoi(word.c_str());
 				break;
 			}
@@ -132,7 +141,10 @@ void col_parser(string line, int r, int c)
 			if (i == line.length() - 1 && line[i] != ' ')
 			{
 				if (idx == c)
+				{
+					// cout << "col[" << r << "]: " << atoi(word.c_str()) << endl;
 					col[r] = atoi(word.c_str());
+				}
 			}
 		}
 	}
@@ -144,30 +156,22 @@ void *calcMatrix(void *param)
 	cout << "calcMatrix\n";
 	int value;
 	for (int i = 0; i < NUM_COLS*NUM_ROWS; i)
-	{
+	{	
+		if(!col_ready || !row_ready)
+			continue;
+
 		value = 0;
 		for (int j = 0; j < NUM_COLS; ++j)
 			value += row[j] * col[j];
-		if(!col_ready || !row_ready)
-			continue;
-		cout << "i: " << i << endl;
+
 		col_ready = false;
 		sem_post(&col_semaphore);
 		sem_wait(&calc_semaphore);
-
-		// for (int z = 0; z < NUM_COLS; ++z)
-		// {
-		// 	cout << row[z] << ' ';
-		// }
-		// cout << " row" << endl;
-		// for (int z = 0; z < NUM_COLS; ++z)
-		// {
-		// 	cout << col[z] << ' ';
-		// }
-		// cout << " col" << endl;
+		
 		calculated[calc_start_idx % 10] = value;
 		calc_start_idx++;
 		i++;
+		// sem_post(&calc_semaphore);
 	}
 	cout << "calcMatrix Ended!\n";
 	pthread_exit(NULL);
@@ -180,12 +184,12 @@ void *printMatrix(void *param)
 	int idx = 0;
 	for (int i = 0; i < NUM_ROWS; i)
 	{
-		// cout << i;
+		// cout << "i: " << i << endl;
 		if (idx == NUM_COLS)
 		{
-			for (int j = 0; j < NUM_COLS - 1; ++j)
-				my_file << out[i] << ' ';
-			my_file << out[NUM_COLS - 1] << endl;
+			for (int j = 0; j < NUM_COLS; ++j)
+				my_file << out[j] << ' ';
+			my_file << endl;
 			idx = 0;
 			i++;
 		}
@@ -198,8 +202,6 @@ void *printMatrix(void *param)
 			sem_post(&calc_semaphore);
 		}
 	}
-
-
 	my_file.close();
 	cout << "printMatrix Ended!\n";
 	pthread_exit(NULL);	
